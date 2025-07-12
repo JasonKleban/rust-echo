@@ -1,14 +1,7 @@
-use std::thread;
-use std::time::Duration;
 use std::sync::mpsc::{ channel, sync_channel };
 
 use burn::prelude::*;
-use burn::{ backend::NdArray };
-
-use ringbuf::{
-    traits::{Consumer, Producer, Split},
-    HeapRb,
-};
+//use burn::{ backend::NdArray };
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
@@ -16,8 +9,8 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 const DURATION_SECONDS: u32 = 3;
 
 fn main() {
-    let device = Default::default();
-    type B = burn::backend::NdArray;
+    //let device = Default::default();
+    //type B = burn::backend::NdArray;
 
     // Set up CPAL host and default input/output devices
     let host = cpal::default_host();
@@ -37,39 +30,50 @@ fn main() {
         panic!("Only f32 sample format is supported in this example.");
     }
 
-    let (tx_done, rx_done) = sync_channel::<Result<(), ()>>(1);
-    let tx_errored = tx_done.clone();
-    let (tx, rx) = channel::<Tensor::<B, 1>>();
+    let (tx, rx) = channel::<f32>();
+    let mut tx = Some(tx);
     let mut samples_remaining: usize = (sample_rate.0 * DURATION_SECONDS) as usize;
 
     println!("Recording for {:?} seconds...", DURATION_SECONDS);
 
     let input_stream = input_device.build_input_stream(
         &config.clone().into(),
-        move |data: &[f32], _| {            
-            tx.send(Tensor::<B, 1>::from_floats(data, &device)).unwrap();
-
+        move |data: &[f32], _| {
             let bytes_read = data.len();
+
             if bytes_read <= samples_remaining {
                 samples_remaining -= bytes_read;
+
+                for sample in data {
+                    match tx {
+                        Some(ref mut tx) => {
+                            tx.send(*sample).unwrap();
+                        },
+                        None => {}
+                    }
+                    
+                }
             } else {
-                tx_done.send(Ok(())).unwrap();
+                tx = None;
             }
         },
         move |err| {
             println!("Input stream error: {:?}", err);
-            tx_errored.send(Err(())).unwrap();
         },
         None,
     ).unwrap();
     
     input_stream.play().unwrap();
 
-    rx_done.recv()
-        .expect("Failed to receive done signal")
-        .expect("Recording failed");
+    loop {
+        let got_samples = rx.iter().take(15000).count();
 
-    drop(input_stream); // Stop recording
+        println!("Received a normalized chunk of {:?} samples", got_samples);
+
+        if 0 == got_samples { break; }
+    }
+    
+    drop(input_stream);
 
     // println!("Playback...");
 
