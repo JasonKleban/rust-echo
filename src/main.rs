@@ -1,4 +1,5 @@
 use std::sync::mpsc::{ channel, sync_channel };
+use realfft::RealFftPlanner;
 
 use burn::prelude::*;
 //use burn::{ backend::NdArray };
@@ -6,7 +7,7 @@ use burn::prelude::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 // Shared buffer for audio data
-const DURATION_SECONDS: u32 = 3;
+const DURATION_SECONDS: u32 = 60;
 
 fn main() {
     //let device = Default::default();
@@ -65,12 +66,52 @@ fn main() {
     
     input_stream.play().unwrap();
 
+    let mut planner = RealFftPlanner::new();
+    let fft = planner.plan_fft_forward(4096);
+    // make a vector for storing the spectrum
+    let mut spectrum = fft.make_output_vec();
+
+    let glyphs = vec![
+        "⠀⢀⢠⢰⢸".chars().collect::<Vec<char>>(),
+        "⡀⣀⣠⣰⣸".chars().collect(),
+        "⡄⣄⣤⣴⣼".chars().collect(),
+        "⡆⣆⣦⣶⣾".chars().collect(),
+        "⡇⣇⣧⣷⣿".chars().collect()];
+
     loop {
-        let got_samples = rx.iter().take(15000).count();
+        let mut buffer = rx.iter().take(4096).collect::<Vec<f32>>();
 
-        println!("Received a normalized chunk of {:?} samples", got_samples);
+        if buffer.len() < 4096 { break; }
 
-        if 0 == got_samples { break; }
+        fft.process(&mut buffer, &mut spectrum).unwrap();
+
+        spectrum.iter_mut().for_each(|x| {
+            *x = *x / 64.; // Normalize the spectrum
+        });
+
+        let spectrum_amplitude = spectrum.iter()
+            .map(|x| { (x.re * x.re + x.im * x.im).sqrt() })
+            .collect::<Vec<f32>>();
+
+        let display = 
+            spectrum_amplitude[..2048]
+            .chunks(16)
+            .map(|chunk| {
+                (5. * (chunk.iter().sum::<f32>() / 64.)).floor().clamp(0., 4.) as usize
+            })
+            .collect::<Vec<_>>();
+
+        let pairs = display
+            .chunks(2)
+            .collect::<Vec<_>>();
+
+        for (i, row) in pairs.iter().enumerate() {
+            let [first, second] = *row else { panic!("bad size {:?}", row) };
+            
+            print!("{}", glyphs[*first][*second]);
+        }
+        
+        println!();
     }
     
     drop(input_stream);

@@ -9,4 +9,4 @@ edition = "2021"
 burn = { version = "0.17.1", features = ["wgpu", "ndarray"] }
 cpal = "0.15"
 ringbuf = "*"
-rustfft = "6.4.0"
+realfft = "3.5.0"
