@@ -22,7 +22,7 @@ fn main() {
     let config = input_device.default_input_config().unwrap();
     let sample_rate = config.sample_rate();
 
-    println!("Recording from {:?} @ {:?} sample_rate", input_device.name().unwrap(), sample_rate);
+    println!("Recording from {:?} @ {:?} sample_rate * {:?} channels", input_device.name().unwrap(), sample_rate, config.channels());
     println!("Outputting to {:?}", output_device.name().unwrap());
 
     let sample_format = config.sample_format();
@@ -33,7 +33,7 @@ fn main() {
 
     let (tx, rx) = channel::<f32>();
     let mut tx = Some(tx);
-    let mut samples_remaining: usize = (sample_rate.0 * DURATION_SECONDS) as usize;
+    let mut frames_remaining: usize = (sample_rate.0 * DURATION_SECONDS) as usize;
 
     println!("Recording for {:?} seconds...", DURATION_SECONDS);
 
@@ -42,13 +42,19 @@ fn main() {
         move |data: &[f32], _| {
             let bytes_read = data.len();
 
-            if bytes_read <= samples_remaining {
-                samples_remaining -= bytes_read;
+            if bytes_read % config.channels() as usize != 0 {
+                panic!("Badly shaped data");
+            }
 
-                for sample in data {
+            let frames_read = bytes_read / config.channels() as usize;
+
+            if frames_read <= frames_remaining {
+                frames_remaining -= frames_read;
+
+                for sample in data.chunks(config.channels() as usize) {
                     match tx {
                         Some(ref mut tx) => {
-                            tx.send(*sample).unwrap();
+                            tx.send((*sample).iter().sum::<f32>() / config.channels() as f32).unwrap();
                         },
                         None => {}
                     }
