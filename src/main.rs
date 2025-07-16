@@ -7,7 +7,7 @@ use burn::prelude::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 // Shared buffer for audio data
-const DURATION_SECONDS: u32 = 60;
+const DURATION_SECONDS: u32 = 10;
 
 fn main() {
     //let device = Default::default();
@@ -76,6 +76,9 @@ fn main() {
     let mut spectrogram = Spectrogram::new(4096 * 4, 4096);
     let mut mel = MelSpectrogram::new(16384, 41000., 64);
 
+    let mut max: f64 = 0.0;
+    let mut min: f64 = 0.0;
+
     loop {
         let buffer = rx.iter().take(4096).collect::<Vec<f32>>();
 
@@ -88,9 +91,17 @@ fn main() {
                 mel_spec
                 .exact_chunks((2, 1));
 
+
             for pair in pairs {
-                let first = (5. * pair[[0, 0]]).clamp(0.,4.).floor() as usize;
-                let second = (5. * pair[[1, 0]]).clamp(0.,4.).floor() as usize;
+                // + 1.1) / 3.3) is to map the decibels(?) to the approximate range I've seen so far
+                let first = (5. * ((pair[[0, 0]] + 1.1) / 3.3)).clamp(0.,4.).floor() as usize;
+                let second = (5. * ((pair[[1, 0]] + 1.1) / 3.3)).clamp(0.,4.).floor() as usize;
+
+                max = max.max(pair[[0, 0]]);
+                max = max.max(pair[[1, 0]]);
+                
+                min = min.min(pair[[0, 0]]);
+                min = min.min(pair[[1, 0]]);
                 
                 print!("{}", glyphs[first][second]);
             }
@@ -98,6 +109,8 @@ fn main() {
             println!();
         }
     }
+                
+    print!("{:?}..{:?}", min, max);
     
     drop(input_stream);
 
