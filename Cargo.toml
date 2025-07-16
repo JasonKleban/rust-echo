@@ -8,5 +8,4 @@ edition = "2021"
 [dependencies]
 burn = { version = "0.17.1", features = ["wgpu", "ndarray"] }
 cpal = "0.15"
-ringbuf = "*"
-realfft = "3.5.0"
+mel_spec = "0.3.3"

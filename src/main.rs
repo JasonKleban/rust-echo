@@ -1,5 +1,5 @@
 use std::sync::mpsc::{ channel, sync_channel };
-use realfft::RealFftPlanner;
+use mel_spec::{mel, prelude::*};
 
 use burn::prelude::*;
 //use burn::{ backend::NdArray };
@@ -22,8 +22,8 @@ fn main() {
     let config = input_device.default_input_config().unwrap();
     let sample_rate = config.sample_rate();
 
-    println!("Recording from {:?} @ {:?} sample_rate", input_device.name(), sample_rate);
-    println!("Outputting to {:?}", output_device.name());
+    println!("Recording from {:?} @ {:?} sample_rate", input_device.name().unwrap(), sample_rate);
+    println!("Outputting to {:?}", output_device.name().unwrap());
 
     let sample_format = config.sample_format();
 
@@ -66,52 +66,37 @@ fn main() {
     
     input_stream.play().unwrap();
 
-    let mut planner = RealFftPlanner::new();
-    let fft = planner.plan_fft_forward(4096);
-    // make a vector for storing the spectrum
-    let mut spectrum = fft.make_output_vec();
-
     let glyphs = vec![
         "⠀⢀⢠⢰⢸".chars().collect::<Vec<char>>(),
         "⡀⣀⣠⣰⣸".chars().collect(),
         "⡄⣄⣤⣴⣼".chars().collect(),
         "⡆⣆⣦⣶⣾".chars().collect(),
-        "⡇⣇⣧⣷⣿".chars().collect()];
+        "⡇⣇⣧⣷⣿".chars().collect()]; 
+
+    let mut spectrogram = Spectrogram::new(4096 * 4, 4096);
+    let mut mel = MelSpectrogram::new(16384, 41000., 64);
 
     loop {
-        let mut buffer = rx.iter().take(4096).collect::<Vec<f32>>();
+        let buffer = rx.iter().take(4096).collect::<Vec<f32>>();
 
         if buffer.len() < 4096 { break; }
 
-        fft.process(&mut buffer, &mut spectrum).unwrap();
+        if let Some (fft_frame) = spectrogram.add(&buffer) {
+            let mel_spec = mel.add(&fft_frame);
 
-        spectrum.iter_mut().for_each(|x| {
-            *x = *x / 64.; // Normalize the spectrum
-        });
+            let pairs = 
+                mel_spec
+                .exact_chunks((2, 1));
 
-        let spectrum_amplitude = spectrum.iter()
-            .map(|x| { (x.re * x.re + x.im * x.im).sqrt() })
-            .collect::<Vec<f32>>();
-
-        let display = 
-            spectrum_amplitude[..2048]
-            .chunks(16)
-            .map(|chunk| {
-                (5. * (chunk.iter().sum::<f32>() / 64.)).floor().clamp(0., 4.) as usize
-            })
-            .collect::<Vec<_>>();
-
-        let pairs = display
-            .chunks(2)
-            .collect::<Vec<_>>();
-
-        for (i, row) in pairs.iter().enumerate() {
-            let [first, second] = *row else { panic!("bad size {:?}", row) };
+            for pair in pairs {
+                let first = (5. * pair[[0, 0]]).clamp(0.,4.).floor() as usize;
+                let second = (5. * pair[[1, 0]]).clamp(0.,4.).floor() as usize;
+                
+                print!("{}", glyphs[first][second]);
+            }
             
-            print!("{}", glyphs[*first][*second]);
+            println!();
         }
-        
-        println!();
     }
     
     drop(input_stream);
