@@ -1,76 +1,23 @@
-use std::sync::mpsc::{ channel, sync_channel };
+mod file_audio;
+mod live_audio;
+mod out_audio;
+
+use std::sync::mpsc::{ channel };
 use mel_spec::{mel, prelude::*};
 
-use burn::prelude::*;
+//use burn::prelude::*;
 //use burn::{ backend::NdArray };
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-
-// Shared buffer for audio data
-const DURATION_SECONDS: u32 = 10;
-
 fn main() {
+
     //let device = Default::default();
     //type B = burn::backend::NdArray;
 
-    // Set up CPAL host and default input/output devices
-    let host = cpal::default_host();
-    let input_device = host.default_input_device().expect("No input device available");
-    let output_device = host.default_output_device().expect("No output device available");
-
-    // Use the default input/output configs
-    let config = input_device.default_input_config().unwrap();
-    let sample_rate = config.sample_rate();
-
-    println!("Recording from {:?} @ {:?} sample_rate * {:?} channels", input_device.name().unwrap(), sample_rate, config.channels());
-    println!("Outputting to {:?}", output_device.name().unwrap());
-
-    let sample_format = config.sample_format();
-
-    if sample_format != cpal::SampleFormat::F32 {
-        panic!("Only f32 sample format is supported in this example.");
-    }
-
     let (tx, rx) = channel::<f32>();
-    let mut tx = Some(tx);
-    let mut frames_remaining: usize = (sample_rate.0 * DURATION_SECONDS) as usize;
 
-    println!("Recording for {:?} seconds...", DURATION_SECONDS);
+    let config = file_audio::stream_file_audio(tx, std::fs::File::open("C:/Users/Jason/Downloads/clips/common_voice_en_43427406.mp3").expect("Failed to open file"));
 
-    let input_stream = input_device.build_input_stream(
-        &config.clone().into(),
-        move |data: &[f32], _| {
-            let bytes_read = data.len();
-
-            if bytes_read % config.channels() as usize != 0 {
-                panic!("Badly shaped data");
-            }
-
-            let frames_read = bytes_read / config.channels() as usize;
-
-            if frames_read <= frames_remaining {
-                frames_remaining -= frames_read;
-
-                for sample in data.chunks(config.channels() as usize) {
-                    match tx {
-                        Some(ref mut tx) => {
-                            tx.send((*sample).iter().sum::<f32>() / config.channels() as f32).unwrap();
-                        },
-                        None => {}
-                    }
-                    
-                }
-            } else {
-                tx = None;
-            }
-        },
-        move |err| {
-            println!("Input stream error: {:?}", err);
-        },
-        None,
-    ).unwrap();
-    
-    input_stream.play().unwrap();
+    //let (_input_stream, config) = live_audio::live_audio(tx, 5);
 
     let glyphs = vec![
         "⠀⢀⢠⢰⢸".chars().collect::<Vec<char>>(),
@@ -81,9 +28,6 @@ fn main() {
 
     let mut spectrogram = Spectrogram::new(4096 * 4, 4096);
     let mut mel = MelSpectrogram::new(16384, 41000., 64);
-
-    let mut max: f64 = 0.0;
-    let mut min: f64 = 0.0;
 
     loop {
         let buffer = rx.iter().take(4096).collect::<Vec<f32>>();
@@ -97,52 +41,22 @@ fn main() {
                 mel_spec
                 .exact_chunks((2, 1));
 
+            print!("|");
 
             for pair in pairs {
                 // + 1.1) / 3.3) is to map the decibels(?) to the approximate range I've seen so far
                 let first = (5. * ((pair[[0, 0]] + 1.1) / 3.3)).clamp(0.,4.).floor() as usize;
                 let second = (5. * ((pair[[1, 0]] + 1.1) / 3.3)).clamp(0.,4.).floor() as usize;
-
-                max = max.max(pair[[0, 0]]);
-                max = max.max(pair[[1, 0]]);
-                
-                min = min.min(pair[[0, 0]]);
-                min = min.min(pair[[1, 0]]);
                 
                 print!("{}", glyphs[first][second]);
             }
             
-            println!();
+            println!("|");
         }
     }
-                
-    print!("{:?}..{:?}", min, max);
     
-    drop(input_stream);
-
-    // println!("Playback...");
-
-    // // Build output stream
-    // let output_stream = output_device.build_output_stream(
-    //     &config.clone().into(),
-    //     move |data: &mut [f32], _| {
-    //         for sample in data {
-    //             *sample = match rx. {
-    //                 Some(s) => s,
-    //                 None => { 0.0 }
-    //             };
-    //         }
-    //     },
-    //     move |err| {
-    //         eprintln!("Output stream error: {:?}", err);
-    //     },
-    //     None,
-    // ).unwrap();
-
-    // // Playback for 3 seconds
-    // output_stream.play().unwrap();
-    
-    // thread::sleep(Duration::from_secs(DURATION_SECONDS.into()));
+    //let (exhausted, _output_stream) = out_audio::out_audio(rx, config);
+    //exhausted.recv().unwrap();
 
     println!("Done.");
 }
